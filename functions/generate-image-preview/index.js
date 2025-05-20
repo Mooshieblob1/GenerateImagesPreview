@@ -17,26 +17,63 @@ const HEADERS = {
 };
 
 export default async ({ req, res, log }) => {
-  log('🔁 Starting image conversion to WebP');
+  log('🔁 Starting image conversion and cleanup');
 
-  const docsRes = await fetch(
+  // Step 1: Fetch source images and build a Set
+  const sourceDocsRes = await fetch(
     `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${SOURCE_COLLECTION_ID}/documents?limit=100`,
     { headers: HEADERS }
   );
-  const { documents = [] } = await docsRes.json();
+  const { documents: sourceDocuments = [] } = await sourceDocsRes.json();
+  const sourceImageIds = new Set(sourceDocuments.map((doc) => doc.imageId));
 
-  const targetDocsRes = await fetch(
+  // Step 2: Fetch existing WebP metadata
+  const webpDocsRes = await fetch(
     `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${TARGET_COLLECTION_ID}/documents?limit=100`,
     { headers: HEADERS }
   );
-  const { documents: targetDocs = [] } = await targetDocsRes.json();
-  const processedIds = targetDocs.map((doc) => doc.originalImageId);
+  const { documents: webpDocuments = [] } = await webpDocsRes.json();
 
   let skipped = 0;
   let converted = 0;
+  let cleaned = 0;
 
-  for (const doc of documents) {
-    if (processedIds.includes(doc.imageId)) {
+  // Step 3: Clean up metadata and files for missing originals
+  for (const doc of webpDocuments) {
+    if (!sourceImageIds.has(doc.originalImageId)) {
+      log(
+        `🧹 Cleaning up metadata + WebP for missing source image ${doc.originalImageId}`
+      );
+
+      // Delete metadata
+      await fetch(
+        `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${TARGET_COLLECTION_ID}/documents/${doc.$id}`,
+        {
+          method: 'DELETE',
+          headers: HEADERS,
+        }
+      );
+
+      // Delete WebP file
+      await fetch(
+        `${APPWRITE_ENDPOINT}/storage/buckets/${TARGET_BUCKET_ID}/files/${doc.webpImageId}`,
+        {
+          method: 'DELETE',
+          headers: HEADERS,
+        }
+      );
+
+      cleaned++;
+    }
+  }
+
+  // Step 4: Generate WebP for unprocessed images
+  const existingProcessed = new Set(
+    webpDocuments.map((doc) => doc.originalImageId)
+  );
+
+  for (const doc of sourceDocuments) {
+    if (existingProcessed.has(doc.imageId)) {
       skipped++;
       continue;
     }
@@ -50,7 +87,7 @@ export default async ({ req, res, log }) => {
 
       const webpDocData = {
         originalImageId: doc.imageId,
-        webpImageId: webpImageId,
+        webpImageId,
         prompt: doc.prompt,
         model: doc.model,
         createdAt: new Date().toISOString(),
@@ -71,7 +108,7 @@ export default async ({ req, res, log }) => {
 
       if (!insertRes.ok) {
         const err = await insertRes.text();
-        log(`❌ Failed to insert WebP document: ${err}`);
+        log(`❌ Failed to insert WebP metadata: ${err}`);
       } else {
         log(`✅ Processed image ${doc.imageId} to WebP format`);
         converted++;
@@ -81,13 +118,14 @@ export default async ({ req, res, log }) => {
     }
   }
 
-  log('✅ WebP conversion complete');
+  log('✅ Image processing and cleanup complete');
   return res.json({
     success: true,
     converted,
     skipped,
-    total: documents.length,
-    message: 'WebP conversion run completed.',
+    cleaned,
+    totalSourceImages: sourceDocuments.length,
+    totalMetadata: webpDocuments.length,
   });
 };
 
