@@ -5,10 +5,10 @@ import FormData from 'form-data';
 const APPWRITE_ENDPOINT = 'https://syd.cloud.appwrite.io/v1';
 const PROJECT_ID = '682b826b003d9cba9018';
 const SOURCE_BUCKET_ID = '682b8a3a001fb3d3e9f2'; // Source bucket for original images
-const TARGET_BUCKET_ID = 'your-target-bucket-id'; // Target bucket for WebP images
+const TARGET_BUCKET_ID = '682cfa1a0016991596f5'; // Target bucket for WebP images
 const DB_ID = '682b89cc0016319fcf30';
 const SOURCE_COLLECTION_ID = '682b8a1a003b15611710'; // Source collection
-const TARGET_COLLECTION_ID = 'your-target-collection-id'; // Target collection for WebP metadata
+const TARGET_COLLECTION_ID = '682cf95a00397776afa6; // Target collection for WebP metadata
 
 const API_KEY = process.env.APIWRITE_API_KEY;
 const HEADERS = {
