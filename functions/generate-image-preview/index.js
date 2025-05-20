@@ -4,11 +4,11 @@ import FormData from 'form-data';
 
 const APPWRITE_ENDPOINT = 'https://syd.cloud.appwrite.io/v1';
 const PROJECT_ID = '682b826b003d9cba9018';
-const SOURCE_BUCKET_ID = '682b8a3a001fb3d3e9f2'; // Source bucket for original images
-const TARGET_BUCKET_ID = '682cfa1a0016991596f5'; // Target bucket for WebP images
+const SOURCE_BUCKET_ID = '682b8a3a001fb3d3e9f2';
+const TARGET_BUCKET_ID = '682cfa1a0016991596f5';
 const DB_ID = '682b89cc0016319fcf30';
-const SOURCE_COLLECTION_ID = '682b8a1a003b15611710'; // Source collection
-const TARGET_COLLECTION_ID = '682cf95a00397776afa6'; // Target collection for WebP metadata
+const SOURCE_COLLECTION_ID = '682b8a1a003b15611710';
+const TARGET_COLLECTION_ID = '682cf95a00397776afa6';
 
 const API_KEY = process.env.APIWRITE_API_KEY;
 const HEADERS = {
@@ -19,14 +19,12 @@ const HEADERS = {
 export default async ({ req, res, log }) => {
   log('🔁 Starting image conversion to WebP');
 
-  // Fetch documents from source collection
   const docsRes = await fetch(
     `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${SOURCE_COLLECTION_ID}/documents?limit=100`,
     { headers: HEADERS }
   );
   const { documents = [] } = await docsRes.json();
 
-  // Fetch documents from target collection to check what's already processed
   const targetDocsRes = await fetch(
     `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${TARGET_COLLECTION_ID}/documents?limit=100`,
     { headers: HEADERS }
@@ -34,19 +32,22 @@ export default async ({ req, res, log }) => {
   const { documents: targetDocs = [] } = await targetDocsRes.json();
   const processedIds = targetDocs.map((doc) => doc.originalImageId);
 
+  let skipped = 0;
+  let converted = 0;
+
   for (const doc of documents) {
-    // Skip if already processed
-    if (processedIds.includes(doc.imageId)) continue;
+    if (processedIds.includes(doc.imageId)) {
+      skipped++;
+      continue;
+    }
 
     try {
-      // Generate WebP and upload to target bucket
       const webpImageId = await generateAndUploadWebP(
         doc.imageId,
         doc.prompt,
         log
       );
 
-      // Create a new document in target collection
       const webpDocData = {
         originalImageId: doc.imageId,
         webpImageId: webpImageId,
@@ -73,6 +74,7 @@ export default async ({ req, res, log }) => {
         log(`❌ Failed to insert WebP document: ${err}`);
       } else {
         log(`✅ Processed image ${doc.imageId} to WebP format`);
+        converted++;
       }
     } catch (err) {
       log(`🔥 Error processing image ${doc.imageId}: ${err.message}`);
@@ -80,7 +82,13 @@ export default async ({ req, res, log }) => {
   }
 
   log('✅ WebP conversion complete');
-  return res.empty();
+  return res.json({
+    success: true,
+    converted,
+    skipped,
+    total: documents.length,
+    message: 'WebP conversion run completed.',
+  });
 };
 
 async function generateAndUploadWebP(fileId, fileName, log) {
