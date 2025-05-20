@@ -11,18 +11,24 @@ const COLLECTION_ID = '682b8a1a003b15611710';
 const API_KEY = process.env.APIWRITE_API_KEY;
 const HEADERS = {
   'X-Appwrite-Project': PROJECT_ID,
-  'X-Appwrite-Key': API_KEY
+  'X-Appwrite-Key': API_KEY,
 };
 
 export default async ({ req, res, log }) => {
-  log("🔁 Starting image preview sync");
+  log('🔁 Starting image preview sync');
 
-  const filesRes = await fetch(`${APPWRITE_ENDPOINT}/storage/buckets/${BUCKET_ID}/files?limit=100`, { headers: HEADERS });
+  const filesRes = await fetch(
+    `${APPWRITE_ENDPOINT}/storage/buckets/${BUCKET_ID}/files?limit=100`,
+    { headers: HEADERS }
+  );
   const { files = [] } = await filesRes.json();
 
-  const docsRes = await fetch(`${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${COLLECTION_ID}/documents?limit=100`, { headers: HEADERS });
+  const docsRes = await fetch(
+    `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${COLLECTION_ID}/documents?limit=100`,
+    { headers: HEADERS }
+  );
   const { documents = [] } = await docsRes.json();
-  const existingIds = documents.map(doc => doc.fullImageId);
+  const existingIds = documents.map((doc) => doc.fullImageId);
 
   for (const file of files) {
     if (existingIds.includes(file.$id)) continue;
@@ -33,7 +39,11 @@ export default async ({ req, res, log }) => {
     const createdAt = new Date(file.$createdAt).toISOString();
 
     try {
-      const previewImageId = await generateAndUploadWebP(file.$id, file.name, log);
+      const previewImageId = await generateAndUploadWebP(
+        file.$id,
+        file.name,
+        log
+      );
 
       const docData = {
         prompt: decodeURIComponent(promptRaw),
@@ -41,17 +51,20 @@ export default async ({ req, res, log }) => {
         fullImageId: file.$id,
         previewImageId,
         tags,
-        createdAt
+        createdAt,
       };
 
-      const insertRes = await fetch(`${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${COLLECTION_ID}/documents`, {
-        method: 'POST',
-        headers: {
-          ...HEADERS,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ documentId: 'unique()', data: docData })
-      });
+      const insertRes = await fetch(
+        `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${COLLECTION_ID}/documents`,
+        {
+          method: 'POST',
+          headers: {
+            ...HEADERS,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ documentId: 'unique()', data: docData }),
+        }
+      );
 
       if (!insertRes.ok) {
         const err = await insertRes.text();
@@ -64,8 +77,10 @@ export default async ({ req, res, log }) => {
     }
   }
 
-  log("✅ Sync complete");
-  res.json({ success: true });
+  log('✅ Sync complete');
+
+  // ✅ Correct return here
+  return res.empty();
 };
 
 async function generateAndUploadWebP(fileId, fileName, log) {
@@ -83,14 +98,17 @@ async function generateAndUploadWebP(fileId, fileName, log) {
   form.append('file', webpBuffer, previewFileName);
   form.append('name', previewFileName);
 
-  const uploadRes = await fetch(`${APPWRITE_ENDPOINT}/storage/buckets/${BUCKET_ID}/files`, {
-    method: 'POST',
-    headers: {
-      ...HEADERS,
-      ...form.getHeaders()
-    },
-    body: form
-  });
+  const uploadRes = await fetch(
+    `${APPWRITE_ENDPOINT}/storage/buckets/${BUCKET_ID}/files`,
+    {
+      method: 'POST',
+      headers: {
+        ...HEADERS,
+        ...form.getHeaders(),
+      },
+      body: form,
+    }
+  );
 
   if (!uploadRes.ok) {
     const err = await uploadRes.text();
