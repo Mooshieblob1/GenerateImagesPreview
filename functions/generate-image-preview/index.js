@@ -96,6 +96,7 @@ async function generateAndUploadWebP(fileId, fileName, log) {
   const previewFileName = `preview-${fileId}.webp`;
   const form = new FormData();
   form.append('file', webpBuffer, previewFileName);
+  form.append('fileId', 'unique()'); // ✅ Required
   form.append('name', previewFileName);
 
   const uploadRes = await fetch(
