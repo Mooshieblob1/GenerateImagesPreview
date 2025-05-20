@@ -52,7 +52,6 @@ export default async ({ req, res, log }) => {
         webpImageId: webpImageId,
         prompt: doc.prompt,
         model: doc.model,
-        tags: doc.tags,
         createdAt: new Date().toISOString(),
         originalCreatedAt: doc.createdAt,
       };
