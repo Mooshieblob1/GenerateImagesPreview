@@ -4,9 +4,11 @@ import FormData from 'form-data';
 
 const APPWRITE_ENDPOINT = 'https://syd.cloud.appwrite.io/v1';
 const PROJECT_ID = '682b826b003d9cba9018';
-const BUCKET_ID = '682b8a3a001fb3d3e9f2';
+const SOURCE_BUCKET_ID = '682b8a3a001fb3d3e9f2'; // Source bucket for original images
+const TARGET_BUCKET_ID = 'your-target-bucket-id'; // Target bucket for WebP images
 const DB_ID = '682b89cc0016319fcf30';
-const COLLECTION_ID = '682b8a1a003b15611710';
+const SOURCE_COLLECTION_ID = '682b8a1a003b15611710'; // Source collection
+const TARGET_COLLECTION_ID = 'your-target-collection-id'; // Target collection for WebP metadata
 
 const API_KEY = process.env.APIWRITE_API_KEY;
 const HEADERS = {
@@ -15,74 +17,75 @@ const HEADERS = {
 };
 
 export default async ({ req, res, log }) => {
-  log('🔁 Starting image preview sync');
+  log('🔁 Starting image conversion to WebP');
 
-  const filesRes = await fetch(
-    `${APPWRITE_ENDPOINT}/storage/buckets/${BUCKET_ID}/files?limit=100`,
-    { headers: HEADERS }
-  );
-  const { files = [] } = await filesRes.json();
-
+  // Fetch documents from source collection
   const docsRes = await fetch(
-    `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${COLLECTION_ID}/documents?limit=100`,
+    `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${SOURCE_COLLECTION_ID}/documents?limit=100`,
     { headers: HEADERS }
   );
   const { documents = [] } = await docsRes.json();
-  const existingIds = documents.map((doc) => doc.imageId);
 
-  for (const file of files) {
-    if (existingIds.includes(file.$id)) continue;
+  // Fetch documents from target collection to check what's already processed
+  const targetDocsRes = await fetch(
+    `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${TARGET_COLLECTION_ID}/documents?limit=100`,
+    { headers: HEADERS }
+  );
+  const { documents: targetDocs = [] } = await targetDocsRes.json();
+  const processedIds = targetDocs.map((doc) => doc.originalImageId);
 
-    const name = file.name.replace(/\.[^.]+$/, '');
-    const [promptRaw, model = '', ...tagParts] = name.split('_');
-    const tags = tagParts.join('_').split('+').filter(Boolean);
-    const createdAt = new Date(file.$createdAt).toISOString();
+  for (const doc of documents) {
+    // Skip if already processed
+    if (processedIds.includes(doc.imageId)) continue;
 
     try {
-      const previewImageId = await generateAndUploadWebP(
-        file.$id,
-        file.name,
+      // Generate WebP and upload to target bucket
+      const webpImageId = await generateAndUploadWebP(
+        doc.imageId,
+        doc.prompt,
         log
       );
 
-      const docData = {
-        prompt: decodeURIComponent(promptRaw),
-        model,
-        imageId: file.$id, // ✅ Required by Appwrite schema
-        previewImageId,
-        tags,
-        createdAt,
+      // Create a new document in target collection
+      const webpDocData = {
+        originalImageId: doc.imageId,
+        webpImageId: webpImageId,
+        prompt: doc.prompt,
+        model: doc.model,
+        tags: doc.tags,
+        createdAt: new Date().toISOString(),
+        originalCreatedAt: doc.createdAt,
       };
 
       const insertRes = await fetch(
-        `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${COLLECTION_ID}/documents`,
+        `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${TARGET_COLLECTION_ID}/documents`,
         {
           method: 'POST',
           headers: {
             ...HEADERS,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ documentId: 'unique()', data: docData }),
+          body: JSON.stringify({ documentId: 'unique()', data: webpDocData }),
         }
       );
 
       if (!insertRes.ok) {
         const err = await insertRes.text();
-        log(`❌ Failed to insert: ${err}`);
+        log(`❌ Failed to insert WebP document: ${err}`);
       } else {
-        log(`✅ Inserted ${file.name} with preview`);
+        log(`✅ Processed image ${doc.imageId} to WebP format`);
       }
     } catch (err) {
-      log(`🔥 Error processing ${file.name}: ${err.message}`);
+      log(`🔥 Error processing image ${doc.imageId}: ${err.message}`);
     }
   }
 
-  log('✅ Sync complete');
+  log('✅ WebP conversion complete');
   return res.empty();
 };
 
 async function generateAndUploadWebP(fileId, fileName, log) {
-  const fileUrl = `${APPWRITE_ENDPOINT}/storage/buckets/${BUCKET_ID}/files/${fileId}/download?project=${PROJECT_ID}`;
+  const fileUrl = `${APPWRITE_ENDPOINT}/storage/buckets/${SOURCE_BUCKET_ID}/files/${fileId}/download?project=${PROJECT_ID}`;
   const originalRes = await fetch(fileUrl, { headers: HEADERS });
   const imageBuffer = Buffer.from(await originalRes.arrayBuffer());
 
@@ -91,14 +94,14 @@ async function generateAndUploadWebP(fileId, fileName, log) {
     .webp({ quality: 75 })
     .toBuffer();
 
-  const previewFileName = `preview-${fileId}.webp`;
+  const webpFileName = `webp-${fileId}.webp`;
   const form = new FormData();
-  form.append('file', webpBuffer, previewFileName);
+  form.append('file', webpBuffer, webpFileName);
   form.append('fileId', 'unique()');
-  form.append('name', previewFileName);
+  form.append('name', webpFileName);
 
   const uploadRes = await fetch(
-    `${APPWRITE_ENDPOINT}/storage/buckets/${BUCKET_ID}/files`,
+    `${APPWRITE_ENDPOINT}/storage/buckets/${TARGET_BUCKET_ID}/files`,
     {
       method: 'POST',
       headers: {
@@ -114,7 +117,7 @@ async function generateAndUploadWebP(fileId, fileName, log) {
     throw new Error(`Failed to upload WebP: ${err}`);
   }
 
-  const preview = await uploadRes.json();
-  log(`🖼️ Created preview ${preview.$id} for ${fileName}`);
-  return preview.$id;
+  const webpFile = await uploadRes.json();
+  log(`🖼️ Created WebP version ${webpFile.$id} for ${fileName}`);
+  return webpFile.$id;
 }
