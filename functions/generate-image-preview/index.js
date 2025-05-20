@@ -28,7 +28,7 @@ export default async ({ req, res, log }) => {
     { headers: HEADERS }
   );
   const { documents = [] } = await docsRes.json();
-  const existingIds = documents.map((doc) => doc.fullImageId);
+  const existingIds = documents.map((doc) => doc.imageId);
 
   for (const file of files) {
     if (existingIds.includes(file.$id)) continue;
@@ -48,7 +48,7 @@ export default async ({ req, res, log }) => {
       const docData = {
         prompt: decodeURIComponent(promptRaw),
         model,
-        fullImageId: file.$id,
+        imageId: file.$id, // ✅ Required by Appwrite schema
         previewImageId,
         tags,
         createdAt,
@@ -78,15 +78,13 @@ export default async ({ req, res, log }) => {
   }
 
   log('✅ Sync complete');
-
-  // ✅ Correct return here
   return res.empty();
 };
 
 async function generateAndUploadWebP(fileId, fileName, log) {
   const fileUrl = `${APPWRITE_ENDPOINT}/storage/buckets/${BUCKET_ID}/files/${fileId}/download?project=${PROJECT_ID}`;
   const originalRes = await fetch(fileUrl, { headers: HEADERS });
-  const imageBuffer = await originalRes.buffer();
+  const imageBuffer = Buffer.from(await originalRes.arrayBuffer());
 
   const webpBuffer = await sharp(imageBuffer)
     .resize({ width: 480 })
@@ -96,7 +94,7 @@ async function generateAndUploadWebP(fileId, fileName, log) {
   const previewFileName = `preview-${fileId}.webp`;
   const form = new FormData();
   form.append('file', webpBuffer, previewFileName);
-  form.append('fileId', 'unique()'); // ✅ Required
+  form.append('fileId', 'unique()');
   form.append('name', previewFileName);
 
   const uploadRes = await fetch(
