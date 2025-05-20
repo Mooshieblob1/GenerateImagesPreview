@@ -19,7 +19,6 @@ const HEADERS = {
 export default async ({ req, res, log }) => {
   log('🔁 Starting image conversion and cleanup');
 
-  // Step 1: Fetch source images and build a Set
   const sourceDocsRes = await fetch(
     `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${SOURCE_COLLECTION_ID}/documents?limit=100`,
     { headers: HEADERS }
@@ -27,7 +26,6 @@ export default async ({ req, res, log }) => {
   const { documents: sourceDocuments = [] } = await sourceDocsRes.json();
   const sourceImageIds = new Set(sourceDocuments.map((doc) => doc.imageId));
 
-  // Step 2: Fetch existing WebP metadata
   const webpDocsRes = await fetch(
     `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${TARGET_COLLECTION_ID}/documents?limit=100`,
     { headers: HEADERS }
@@ -38,40 +36,46 @@ export default async ({ req, res, log }) => {
   let converted = 0;
   let cleaned = 0;
 
-  // Step 3: Clean up metadata and files for missing originals
+  const existingProcessed = new Set();
+  const orphanedMetadata = [];
+
   for (const doc of webpDocuments) {
+    // Validate WebP file still exists
+    const headRes = await fetch(
+      `${APPWRITE_ENDPOINT}/storage/buckets/${TARGET_BUCKET_ID}/files/${doc.webpImageId}/view`,
+      { method: 'HEAD', headers: HEADERS }
+    );
+
+    if (headRes.ok) {
+      existingProcessed.add(doc.originalImageId);
+    } else {
+      log(`⚠️ WebP file missing for metadata doc ${doc.$id}, will delete`);
+      orphanedMetadata.push(doc);
+    }
+
+    // Check if original image still exists
     if (!sourceImageIds.has(doc.originalImageId)) {
       log(
-        `🧹 Cleaning up metadata + WebP for missing source image ${doc.originalImageId}`
+        `🧹 Cleaning up stale metadata + WebP for missing source ${doc.originalImageId}`
       );
-
-      // Delete metadata
-      await fetch(
-        `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${TARGET_COLLECTION_ID}/documents/${doc.$id}`,
-        {
-          method: 'DELETE',
-          headers: HEADERS,
-        }
-      );
-
-      // Delete WebP file
-      await fetch(
-        `${APPWRITE_ENDPOINT}/storage/buckets/${TARGET_BUCKET_ID}/files/${doc.webpImageId}`,
-        {
-          method: 'DELETE',
-          headers: HEADERS,
-        }
-      );
-
-      cleaned++;
+      orphanedMetadata.push(doc);
     }
   }
 
-  // Step 4: Generate WebP for unprocessed images
-  const existingProcessed = new Set(
-    webpDocuments.map((doc) => doc.originalImageId)
-  );
+  // Cleanup orphaned metadata and files
+  for (const doc of orphanedMetadata) {
+    await fetch(
+      `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${TARGET_COLLECTION_ID}/documents/${doc.$id}`,
+      { method: 'DELETE', headers: HEADERS }
+    );
+    await fetch(
+      `${APPWRITE_ENDPOINT}/storage/buckets/${TARGET_BUCKET_ID}/files/${doc.webpImageId}`,
+      { method: 'DELETE', headers: HEADERS }
+    );
+    cleaned++;
+  }
 
+  // Process unconverted images
   for (const doc of sourceDocuments) {
     if (existingProcessed.has(doc.imageId)) {
       skipped++;
@@ -90,8 +94,6 @@ export default async ({ req, res, log }) => {
         webpImageId,
         prompt: doc.prompt,
         model: doc.model,
-        createdAt: new Date().toISOString(),
-        originalCreatedAt: doc.createdAt,
       };
 
       const insertRes = await fetch(
