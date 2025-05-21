@@ -19,18 +19,10 @@ const HEADERS = {
 export default async ({ req, res, log }) => {
   log('🔁 Starting image conversion and cleanup');
 
-  const sourceDocsRes = await fetch(
-    `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${SOURCE_COLLECTION_ID}/documents?limit=100`,
-    { headers: HEADERS }
-  );
-  const { documents: sourceDocuments = [] } = await sourceDocsRes.json();
-  const sourceImageIds = new Set(sourceDocuments.map((doc) => doc.imageId));
+  const sourceDocuments = await paginateDocuments(SOURCE_COLLECTION_ID);
+  const webpDocuments = await paginateDocuments(TARGET_COLLECTION_ID);
 
-  const webpDocsRes = await fetch(
-    `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${TARGET_COLLECTION_ID}/documents?limit=100`,
-    { headers: HEADERS }
-  );
-  const { documents: webpDocuments = [] } = await webpDocsRes.json();
+  const sourceImageIds = new Set(sourceDocuments.map((doc) => doc.imageId));
 
   let skipped = 0;
   let converted = 0;
@@ -40,7 +32,6 @@ export default async ({ req, res, log }) => {
   const orphanedMetadata = [];
 
   for (const doc of webpDocuments) {
-    // Validate WebP file still exists
     const headRes = await fetch(
       `${APPWRITE_ENDPOINT}/storage/buckets/${TARGET_BUCKET_ID}/files/${doc.webpImageId}/view`,
       { method: 'HEAD', headers: HEADERS }
@@ -53,7 +44,6 @@ export default async ({ req, res, log }) => {
       orphanedMetadata.push(doc);
     }
 
-    // Check if original image still exists
     if (!sourceImageIds.has(doc.originalImageId)) {
       log(
         `🧹 Cleaning up stale metadata + WebP for missing source ${doc.originalImageId}`
@@ -62,7 +52,6 @@ export default async ({ req, res, log }) => {
     }
   }
 
-  // Cleanup orphaned metadata and files
   for (const doc of orphanedMetadata) {
     await fetch(
       `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${TARGET_COLLECTION_ID}/documents/${doc.$id}`,
@@ -75,7 +64,6 @@ export default async ({ req, res, log }) => {
     cleaned++;
   }
 
-  // Process unconverted images
   for (const doc of sourceDocuments) {
     if (existingProcessed.has(doc.imageId)) {
       skipped++;
@@ -130,6 +118,30 @@ export default async ({ req, res, log }) => {
     totalMetadata: webpDocuments.length,
   });
 };
+
+async function paginateDocuments(collectionId) {
+  let allDocs = [];
+  let cursor = null;
+
+  while (true) {
+    const url = new URL(
+      `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${collectionId}/documents`
+    );
+    url.searchParams.set('limit', '100');
+    if (cursor) url.searchParams.set('cursorAfter', cursor);
+
+    const res = await fetch(url.toString(), { headers: HEADERS });
+    const { documents = [] } = await res.json();
+
+    if (documents.length === 0) break;
+    allDocs.push(...documents);
+
+    if (documents.length < 100) break;
+    cursor = documents[documents.length - 1].$id;
+  }
+
+  return allDocs;
+}
 
 async function generateAndUploadWebP(fileId, fileName, log) {
   const fileUrl = `${APPWRITE_ENDPOINT}/storage/buckets/${SOURCE_BUCKET_ID}/files/${fileId}/download?project=${PROJECT_ID}`;
