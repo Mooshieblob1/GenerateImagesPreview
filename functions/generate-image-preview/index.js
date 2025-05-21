@@ -27,6 +27,9 @@ export default async ({ req, res, log }) => {
   let skipped = 0;
   let converted = 0;
   let cleaned = 0;
+  let alreadyProcessed = 0;
+  let payloadTooLarge = 0;
+  let failedInserts = 0;
 
   const existingProcessed = new Set();
   const orphanedMetadata = [];
@@ -53,18 +56,25 @@ export default async ({ req, res, log }) => {
   for (const doc of orphanedMetadata) {
     await fetch(
       `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${TARGET_COLLECTION_ID}/documents/${doc.$id}`,
-      { method: 'DELETE', headers: HEADERS }
+      {
+        method: 'DELETE',
+        headers: HEADERS,
+      }
     );
     await fetch(
       `${APPWRITE_ENDPOINT}/storage/buckets/${TARGET_BUCKET_ID}/files/${doc.webpImageId}`,
-      { method: 'DELETE', headers: HEADERS }
+      {
+        method: 'DELETE',
+        headers: HEADERS,
+      }
     );
     cleaned++;
   }
 
   for (const doc of sourceDocuments) {
     if (existingProcessed.has(doc.imageId)) {
-      skipped++;
+      alreadyProcessed++;
+      log(`⏭️ Skipping ${doc.imageId}: already processed`);
       continue;
     }
 
@@ -97,6 +107,7 @@ export default async ({ req, res, log }) => {
             2
           )} KB)`
         );
+        payloadTooLarge++;
         continue;
       }
 
@@ -114,7 +125,8 @@ export default async ({ req, res, log }) => {
 
       if (!insertRes.ok) {
         const err = await insertRes.text();
-        log(`❌ Failed to insert WebP metadata: ${err}`);
+        log(`❌ Failed to insert WebP metadata for ${doc.imageId}: ${err}`);
+        failedInserts++;
       } else {
         log(`✅ Processed image ${doc.imageId} to WebP format`);
         converted++;
@@ -125,11 +137,23 @@ export default async ({ req, res, log }) => {
   }
 
   log('✅ Image processing and cleanup complete');
+  log('🔢 Summary:');
+  log(`Total source: ${sourceDocuments.length}`);
+  log(`Already processed: ${alreadyProcessed}`);
+  log(`Too large to insert: ${payloadTooLarge}`);
+  log(`Failed inserts: ${failedInserts}`);
+  log(`Successfully inserted: ${converted}`);
+  log(`Cleaned: ${cleaned}`);
+  log(`Skipped (manual skips): ${skipped}`);
+
   return res.json({
     success: true,
     converted,
     skipped,
     cleaned,
+    alreadyProcessed,
+    payloadTooLarge,
+    failedInserts,
     totalSourceImages: sourceDocuments.length,
     totalMetadata: webpDocuments.length,
   });
