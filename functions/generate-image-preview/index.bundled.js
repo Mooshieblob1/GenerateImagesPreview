@@ -32855,6 +32855,8 @@ async function paginateDocuments(databases, collectionId, log) {
     const queries = [import_node_appwrite.Query.limit(500)];
     if (cursor)
       queries.push(import_node_appwrite.Query.cursorAfter(cursor));
+    log(`\u{1F4E1} About to fetch documents from: ${collectionId}`);
+    log(`\u{1F4E1} Queries: ${JSON.stringify(queries)}`);
     const result = await databases.listDocuments(DB_ID, collectionId, queries);
     const documents = result.documents;
     log(`\u{1F4E1} Fetched ${documents.length} from ${collectionId}`);

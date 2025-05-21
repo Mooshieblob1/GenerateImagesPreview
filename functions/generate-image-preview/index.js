@@ -179,6 +179,9 @@ async function paginateDocuments(databases, collectionId, log) {
     const queries = [Query.limit(500)];
     if (cursor) queries.push(Query.cursorAfter(cursor));
 
+    log(`📡 About to fetch documents from: ${collectionId}`);
+    log(`📡 Queries: ${JSON.stringify(queries)}`);
+
     const result = await databases.listDocuments(DB_ID, collectionId, queries);
     const documents = result.documents;
 
