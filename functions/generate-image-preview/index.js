@@ -1,7 +1,7 @@
-const sharp = require('sharp');
-const fetch = require('node-fetch');
-const FormData = require('form-data');
-const { Client, Databases, Query } = require('node-appwrite');
+import sharp from 'sharp';
+import fetch from 'node-fetch';
+import FormData from 'form-data';
+import { Client, Databases, Query } from 'node-appwrite';
 
 const APPWRITE_ENDPOINT = 'https://syd.cloud.appwrite.io/v1';
 const PROJECT_ID = '682b826b003d9cba9018';
@@ -13,7 +13,7 @@ const TARGET_COLLECTION_ID = '682cf95a00397776afa6';
 
 const API_KEY = process.env.APIWRITE_API_KEY;
 
-module.exports = async ({ req, res, log }) => {
+export default async ({ req, res, log }) => {
   log('🔁 Starting image conversion and cleanup');
 
   const client = new Client()
