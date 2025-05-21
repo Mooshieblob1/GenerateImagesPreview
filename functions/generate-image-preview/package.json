@@ -1,9 +1,15 @@
 {
   "type": "module",
+  "scripts": {
+    "build": "esbuild index.js --bundle --platform=node --target=node18 --outfile=index.bundled.js"
+  },
   "dependencies": {
     "sharp": "^0.33.1",
     "node-fetch": "^3.3.2",
     "form-data": "^4.0.0",
     "node-appwrite": "^10.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.19.0"
   }
 }
