@@ -82,6 +82,24 @@ export default async ({ req, res, log }) => {
         model: doc.model,
       };
 
+      const payload = {
+        documentId: 'unique()',
+        ...webpDocData,
+      };
+
+      const rawBody = JSON.stringify(payload);
+      const sizeKB = Buffer.byteLength(rawBody) / 1024;
+      log(`📏 Payload size for ${doc.imageId}: ${sizeKB.toFixed(2)} KB`);
+
+      if (sizeKB > 16000) {
+        log(
+          `⚠️ Skipping ${doc.imageId}: payload too large (${sizeKB.toFixed(
+            2
+          )} KB)`
+        );
+        continue;
+      }
+
       const insertRes = await fetch(
         `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${TARGET_COLLECTION_ID}/documents`,
         {
@@ -90,7 +108,7 @@ export default async ({ req, res, log }) => {
             ...HEADERS,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ documentId: 'unique()', data: webpDocData }),
+          body: rawBody,
         }
       );
 
