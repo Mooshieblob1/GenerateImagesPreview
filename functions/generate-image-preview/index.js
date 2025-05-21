@@ -1,6 +1,7 @@
-import sharp from 'sharp';
-import fetch from 'node-fetch';
-import FormData from 'form-data';
+const sharp = require('sharp');
+const fetch = require('node-fetch');
+const FormData = require('form-data');
+const { Client, Databases, Query } = require('node-appwrite');
 
 const APPWRITE_ENDPOINT = 'https://syd.cloud.appwrite.io/v1';
 const PROJECT_ID = '682b826b003d9cba9018';
@@ -11,16 +12,27 @@ const SOURCE_COLLECTION_ID = '682b8a1a003b15611710';
 const TARGET_COLLECTION_ID = '682cf95a00397776afa6';
 
 const API_KEY = process.env.APIWRITE_API_KEY;
-const HEADERS = {
-  'X-Appwrite-Project': PROJECT_ID,
-  'X-Appwrite-Key': API_KEY,
-};
 
-export default async ({ req, res, log }) => {
+module.exports = async ({ req, res, log }) => {
   log('🔁 Starting image conversion and cleanup');
 
-  const sourceDocuments = await paginateDocuments(SOURCE_COLLECTION_ID, log);
-  const webpDocuments = await paginateDocuments(TARGET_COLLECTION_ID, log);
+  const client = new Client()
+    .setEndpoint(APPWRITE_ENDPOINT)
+    .setProject(PROJECT_ID)
+    .setKey(API_KEY);
+
+  const databases = new Databases(client);
+
+  const sourceDocuments = await paginateDocuments(
+    databases,
+    SOURCE_COLLECTION_ID,
+    log
+  );
+  const webpDocuments = await paginateDocuments(
+    databases,
+    TARGET_COLLECTION_ID,
+    log
+  );
 
   const sourceImageIds = new Set(sourceDocuments.map((doc) => doc.imageId));
 
@@ -37,7 +49,7 @@ export default async ({ req, res, log }) => {
   for (const doc of webpDocuments) {
     const headRes = await fetch(
       `${APPWRITE_ENDPOINT}/storage/buckets/${TARGET_BUCKET_ID}/files/${doc.webpImageId}/view`,
-      { method: 'HEAD', headers: HEADERS }
+      { method: 'HEAD', headers: getHeaders() }
     );
 
     const hasWebp = headRes.ok;
@@ -58,14 +70,14 @@ export default async ({ req, res, log }) => {
       `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${TARGET_COLLECTION_ID}/documents/${doc.$id}`,
       {
         method: 'DELETE',
-        headers: HEADERS,
+        headers: getHeaders(),
       }
     );
     await fetch(
       `${APPWRITE_ENDPOINT}/storage/buckets/${TARGET_BUCKET_ID}/files/${doc.webpImageId}`,
       {
         method: 'DELETE',
-        headers: HEADERS,
+        headers: getHeaders(),
       }
     );
     cleaned++;
@@ -116,7 +128,7 @@ export default async ({ req, res, log }) => {
         {
           method: 'POST',
           headers: {
-            ...HEADERS,
+            ...getHeaders(),
             'Content-Type': 'application/json',
           },
           body: rawBody,
@@ -159,27 +171,22 @@ export default async ({ req, res, log }) => {
   });
 };
 
-async function paginateDocuments(collectionId, log) {
+async function paginateDocuments(databases, collectionId, log) {
   let allDocs = [];
   let cursor = null;
 
   while (true) {
-    const url = new URL(
-      `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${collectionId}/documents`
-    );
-    url.searchParams.set('limit', '100');
-    url.searchParams.set('orderField', '$createdAt');
-    url.searchParams.set('orderType', 'ASC');
-    if (cursor) url.searchParams.set('cursorAfter', cursor);
+    const queries = [Query.limit(500)];
+    if (cursor) queries.push(Query.cursorAfter(cursor));
 
-    const finalUrl = url.toString();
-    log(`📡 Fetching: ${finalUrl}`);
-    const res = await fetch(finalUrl, { headers: HEADERS });
-    const { documents = [] } = await res.json();
+    const result = await databases.listDocuments(DB_ID, collectionId, queries);
+    const documents = result.documents;
 
+    log(`📡 Fetched ${documents.length} from ${collectionId}`);
     if (documents.length === 0) break;
+
     allDocs.push(...documents);
-    if (documents.length < 100) break;
+    if (documents.length < 500) break;
 
     cursor = documents[documents.length - 1].$id;
   }
@@ -187,9 +194,16 @@ async function paginateDocuments(collectionId, log) {
   return allDocs;
 }
 
+function getHeaders() {
+  return {
+    'X-Appwrite-Project': PROJECT_ID,
+    'X-Appwrite-Key': API_KEY,
+  };
+}
+
 async function generateAndUploadWebP(fileId, fileName, log) {
   const fileUrl = `${APPWRITE_ENDPOINT}/storage/buckets/${SOURCE_BUCKET_ID}/files/${fileId}/download?project=${PROJECT_ID}`;
-  const originalRes = await fetch(fileUrl, { headers: HEADERS });
+  const originalRes = await fetch(fileUrl, { headers: getHeaders() });
   const imageBuffer = Buffer.from(await originalRes.arrayBuffer());
 
   const webpBuffer = await sharp(imageBuffer)
@@ -208,7 +222,7 @@ async function generateAndUploadWebP(fileId, fileName, log) {
     {
       method: 'POST',
       headers: {
-        ...HEADERS,
+        ...getHeaders(),
         ...form.getHeaders(),
       },
       body: form,
