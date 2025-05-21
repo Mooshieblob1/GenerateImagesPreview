@@ -101,7 +101,7 @@ export default async ({ req, res, log }) => {
       }
 
       const insertRes = await fetch(
-        `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${TARGET_COLLECTION_ID}/documents`,
+        `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${TARGET_COLLECTION_ID}/documents?documentId=unique()`,
         {
           method: 'POST',
           headers: {
