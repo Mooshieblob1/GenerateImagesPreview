@@ -19,8 +19,8 @@ const HEADERS = {
 export default async ({ req, res, log }) => {
   log('🔁 Starting image conversion and cleanup');
 
-  const sourceDocuments = await paginateDocuments(SOURCE_COLLECTION_ID);
-  const webpDocuments = await paginateDocuments(TARGET_COLLECTION_ID);
+  const sourceDocuments = await paginateDocuments(SOURCE_COLLECTION_ID, log);
+  const webpDocuments = await paginateDocuments(TARGET_COLLECTION_ID, log);
 
   const sourceImageIds = new Set(sourceDocuments.map((doc) => doc.imageId));
 
@@ -159,7 +159,7 @@ export default async ({ req, res, log }) => {
   });
 };
 
-async function paginateDocuments(collectionId) {
+async function paginateDocuments(collectionId, log) {
   let allDocs = [];
   let cursor = null;
 
@@ -172,7 +172,9 @@ async function paginateDocuments(collectionId) {
     url.searchParams.set('orderType', 'ASC');
     if (cursor) url.searchParams.set('cursorAfter', cursor);
 
-    const res = await fetch(url.toString(), { headers: HEADERS });
+    const finalUrl = url.toString();
+    log(`📡 Fetching: ${finalUrl}`);
+    const res = await fetch(finalUrl, { headers: HEADERS });
     const { documents = [] } = await res.json();
 
     if (documents.length === 0) break;
