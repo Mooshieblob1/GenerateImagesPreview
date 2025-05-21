@@ -6,7 +6,7 @@ A simple starter function. Edit `src/main.js` to get started and create somethin
 
 ### GET /ping
 
-- Returns a "Pong" message.
+- Returns a "Pong" message
 
 **Response**
 
