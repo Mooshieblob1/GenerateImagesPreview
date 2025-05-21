@@ -37,16 +37,14 @@ export default async ({ req, res, log }) => {
       { method: 'HEAD', headers: HEADERS }
     );
 
-    if (headRes.ok) {
+    const hasWebp = headRes.ok;
+    const hasSource = sourceImageIds.has(doc.originalImageId);
+
+    if (hasWebp && hasSource) {
       existingProcessed.add(doc.originalImageId);
     } else {
-      log(`⚠️ WebP file missing for metadata doc ${doc.$id}, will delete`);
-      orphanedMetadata.push(doc);
-    }
-
-    if (!sourceImageIds.has(doc.originalImageId)) {
       log(
-        `🧹 Cleaning up stale metadata + WebP for missing source ${doc.originalImageId}`
+        `🧹 Cleaning up orphaned or stale doc ${doc.$id} (${doc.originalImageId})`
       );
       orphanedMetadata.push(doc);
     }
@@ -128,6 +126,8 @@ async function paginateDocuments(collectionId) {
       `${APPWRITE_ENDPOINT}/databases/${DB_ID}/collections/${collectionId}/documents`
     );
     url.searchParams.set('limit', '100');
+    url.searchParams.set('orderField', '$createdAt');
+    url.searchParams.set('orderType', 'ASC');
     if (cursor) url.searchParams.set('cursorAfter', cursor);
 
     const res = await fetch(url.toString(), { headers: HEADERS });
@@ -135,8 +135,8 @@ async function paginateDocuments(collectionId) {
 
     if (documents.length === 0) break;
     allDocs.push(...documents);
-
     if (documents.length < 100) break;
+
     cursor = documents[documents.length - 1].$id;
   }
 
